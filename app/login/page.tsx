@@ -4,7 +4,7 @@ import { Trophy } from "lucide-react";
 import { login } from "@/app/actions/auth";
 import { AuthForm } from "@/components/auth-form";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { needsSetup } from "@/lib/auth/dal";
+import { getViewer, needsSetup } from "@/lib/auth/dal";
 
 export const metadata = { title: "Log in · Comp" };
 
@@ -16,6 +16,13 @@ export default async function LoginPage({
   // proxy.ts can't see the database, so an empty install lands here first. Send
   // it on to the one-time setup.
   if (needsSetup()) redirect("/setup");
+
+  // The authoritative "you're already logged in" check. proxy.ts deliberately
+  // doesn't make this call — it can only see that *a* cookie exists, and acting
+  // on that would bounce anyone holding a stale one between here and / forever.
+  // A cookie that no longer resolves falls through to the form below and is
+  // overwritten by the next successful login.
+  if (await getViewer()) redirect("/");
 
   const { next } = await searchParams;
 
