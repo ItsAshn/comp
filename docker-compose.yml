@@ -1,0 +1,39 @@
+services:
+  app:
+    build: .
+    # Loopback only: your Cloudflare tunnel is the sole way in from outside.
+    ports:
+      - "127.0.0.1:3000:3000"
+    volumes:
+      - ./data:/data
+    environment:
+      DATABASE_PATH: /data/comp.db
+      # "Today" is decided server-side, so a container left on UTC can file an
+      # evening weigh-in under tomorrow. Set this to your own zone.
+      TZ: ${TZ:-Etc/UTC}
+    restart: unless-stopped
+
+  # Nightly snapshot. VACUUM INTO is safe against a live WAL database; a plain
+  # `cp` can capture a torn write and silently produce a corrupt copy.
+  backup:
+    image: alpine:3
+    volumes:
+      - ./data:/data
+      - ./backups:/backups
+    command:
+      - sh
+      - -c
+      - |
+        apk add --no-cache sqlite >/dev/null
+        while true; do
+          target="/backups/comp-$$(date +%F).db"
+          rm -f "$$target"
+          if sqlite3 /data/comp.db "VACUUM INTO '$$target'"; then
+            echo "[backup] wrote $$target"
+          else
+            echo "[backup] FAILED $$target"
+          fi
+          find /backups -name 'comp-*.db' -mtime +14 -delete
+          sleep 86400
+        done
+    restart: unless-stopped
