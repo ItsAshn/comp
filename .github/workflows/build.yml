@@ -1,0 +1,56 @@
+name: Build image
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+# A push that lands while an earlier build is still running makes that build
+# pointless — `latest` would end up pointing at the older commit if it finished
+# second. Keep only the newest.
+concurrency:
+  group: build-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      # Lets the automatic GITHUB_TOKEN push to GHCR. Without it the job
+      # authenticates fine and then fails on push with a 403.
+      packages: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: docker/setup-buildx-action@v3
+
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - id: meta
+        uses: docker/metadata-action@v5
+        with:
+          # Lowercased for us — GHCR rejects uppercase, and the owner here is
+          # `ItsAshn`.
+          images: ghcr.io/${{ github.repository }}
+          tags: |
+            type=raw,value=latest
+            type=sha,format=long
+
+      - uses: docker/build-push-action@v6
+        with:
+          context: .
+          # The VPS is x86_64. Building arm64 too would double the job for an
+          # image nothing pulls.
+          platforms: linux/amd64
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          # Without a cache every build recompiles better-sqlite3's native
+          # binding and re-runs pnpm install from scratch.
+          cache-from: type=gha
+          cache-to: type=gha,mode=max

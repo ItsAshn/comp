@@ -86,6 +86,29 @@ Nothing here listens on the public internet. The app publishes **no ports**, and
 needs **no inbound ports open at all** — not even 80 or 443. The tunnel dials out. The box's
 IP address is never published either (see step 3), so there's no public surface to find.
 
+The VPS never builds the image — GitHub Actions does, and the VPS only pulls it. So there's
+no toolchain, no `buildx` and no source checkout needed on the box; `docker-compose.yml`
+names `ghcr.io/itsashn/comp:latest` and nothing else.
+
+The **package is public**, so the VPS pulls anonymously — no `docker login`, no token to
+store on the box and none for watchtower to go stale on. The repo stays private; on GitHub a
+package's visibility is set independently of the repo it was built from.
+
+> **One-time, after the first successful workflow run.** A new package inherits the repo's
+> visibility, so it starts *private* and the VPS pull fails with `denied` until you change
+> it. The package doesn't exist until Actions has pushed it once, so this can't be done
+> up front:
+>
+> **[Packages](https://github.com/ItsAshn?tab=packages) → `comp` → Package settings → Danger
+> Zone → Change visibility → Public.**
+
+Publishing it is only safe because the image holds nothing secret: `.dockerignore` keeps
+`.env*`, `data` and `backups` out of the build context, and the runtime stage carries just
+the compiled app — verified as the same code the app would serve any visitor anyway. The
+accounts, sessions and database live in `./data` on the VPS, never in the image. **Bake a
+secret into the image and that stops being true**; anything sensitive belongs in the
+environment or on the volume.
+
 **1. Join the tunnel's network.** `cloudflareTunnel` is an external network: this project
 only joins it, and compose fails loudly if it's missing. The app takes the fixed address
 **`172.18.0.3`** on it, hardcoded in `docker-compose.yml`:
@@ -93,7 +116,7 @@ only joins it, and compose fails loudly if it's missing. The app takes the fixed
 ```bash
 docker network inspect cloudflareTunnel   # confirm 172.18.0.3 is free
 cp .env.example .env                      # set TZ
-docker compose up -d --build
+docker compose up -d          # pulls; never builds
 ```
 
 Check first, because Docker hands out dynamic addresses from this same subnet and won't give
@@ -143,6 +166,31 @@ It starts with **no accounts** on purpose: visit the site and claim the admin ac
 
 Set `TZ` in `.env` to your own timezone. "Today" is decided server-side, so a container left
 on UTC can file an evening weigh-in under tomorrow.
+
+## Updates
+
+Push to `main` → Actions builds the image and pushes `ghcr.io/itsashn/comp:latest` → the
+`watchtower` sidecar notices within 5 minutes, pulls it and recreates `comp-app`. There's
+nothing to run on the VPS.
+
+Every image is also tagged `sha-<commit>`, so pinning `docker-compose.yml` to one of those is
+how you roll back — or hold a version steady while you work on `main`.
+
+Two consequences worth knowing about:
+
+- **The database migrates itself on boot** (`instrumentation.ts`), so a merge that carries a
+  migration applies it unattended, on a container that restarts by surprise. The nightly
+  snapshot below is what stands behind that.
+- **Watchtower mounts the Docker socket**, which is root-equivalent on the host — anything
+  that can reach that socket can start a privileged container and own the box. It's scoped by
+  label (`com.centurylinklabs.watchtower.enable=true`, set only on `app`) so it leaves
+  cloudflared and your other services alone, but the socket access is the standing price of
+  unattended updates. Drop the `watchtower` service and run `docker compose pull && docker
+  compose up -d` by hand if you'd rather not pay it.
+
+`DOCKER_API_VERSION: "1.41"` in the compose file isn't optional. Watchtower asks for API 1.25
+by default, Docker 29 refuses anything below 1.40, and the failure is a nil-pointer panic at
+startup rather than a version error.
 
 ## Data model
 
@@ -194,6 +242,7 @@ a torn write and silently produce a corrupt copy — don't back up that way.
 To restore, stop the app and copy a snapshot over `./data/comp.db` (removing the stale
 `-wal`/`-shm` files alongside it).
 
-> Watchtower can't do this job. It updates container *images* from a registry and never
-> touches volume data, so it would keep zero copies of your entries. It's a deploy tool,
-> not a backup tool.
+> The `watchtower` sidecar is not a second copy of this. It updates container *images* and
+> never touches volume data, so it keeps zero copies of your entries — and by applying
+> migrations unattended it's arguably the reason these snapshots matter. Deploy tool, not a
+> backup tool.

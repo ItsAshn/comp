@@ -1,10 +1,18 @@
 services:
   app:
-    build: .
+    # Built and pushed by .github/workflows/build.yml — never built here. The
+    # VPS only pulls, so it needs no toolchain and no buildx.
+    image: ghcr.io/itsashn/comp:latest
     # Stable DNS name, so the tunnel's ingress rule can target `comp-app:3000`
     # instead of the address below. Without this, compose would name the
     # container `comp-app-1` and a project rename would silently break it.
     container_name: comp-app
+    labels:
+      # Watchtower only touches containers carrying this label (it runs with
+      # WATCHTOWER_LABEL_ENABLE below). Without it, watchtower would update
+      # every container on the VPS — cloudflared and your other services
+      # included — and restart them behind your back.
+      com.centurylinklabs.watchtower.enable: "true"
     # No `ports`: publishing 3000 would expose the app on the VPS's public IP,
     # letting anyone reach it directly and skip Cloudflare entirely. Reachable
     # only from cloudflared over the shared network below.
@@ -18,9 +26,6 @@ services:
         # containers on the network — cloudflared's own address included. On a
         # collision the container refuses to start rather than quietly moving.
         ipv4_address: 172.18.0.3
-      # `backup` shares ./data, not the network — but the app still needs a
-      # default network for outbound traffic (image pulls of its own, DNS).
-      default:
     volumes:
       - ./data:/data
     environment:
@@ -28,6 +33,38 @@ services:
       # "Today" is decided server-side, so a container left on UTC can file an
       # evening weigh-in under tomorrow. Set this to your own zone.
       TZ: ${TZ:-Etc/UTC}
+    restart: unless-stopped
+
+  # Polls GHCR and replaces `app` when a new image lands, so a merge to main
+  # deploys itself. Updates images only — see the `backup` sidecar for data.
+  watchtower:
+    image: containrrr/watchtower:1.7.1
+    volumes:
+      # Docker's control socket. Watchtower needs it to recreate containers,
+      # and it is root-equivalent on the host: anything that can talk to this
+      # socket can start a privileged container and own the box. That's the
+      # standing cost of unattended updates.
+      - /var/run/docker.sock:/var/run/docker.sock
+      # No registry credentials mounted here on purpose: the GHCR package is
+      # public, so anonymous pulls work. Make it private again and watchtower
+      # will silently report "no updates" rather than erroring — it would then
+      # need ~/.docker/config.json mounted at /config.json.
+    environment:
+      # Watchtower 1.7.1 asks for Docker API 1.25, and Docker 29 refuses
+      # anything below 1.40 — unset, it panics on a nil pointer at startup
+      # instead of reporting the version mismatch. 1.41 clears that floor and
+      # still works back to Docker 20.10, so it's the widest window; the
+      # project has been unmaintained since 2023, so this won't be fixed
+      # upstream.
+      DOCKER_API_VERSION: "1.41"
+      # Only containers labelled watchtower.enable=true. Leave this on.
+      WATCHTOWER_LABEL_ENABLE: "true"
+      # Delete the superseded image after each update, or the VPS accumulates
+      # every version it has ever pulled.
+      WATCHTOWER_CLEANUP: "true"
+      # 5 minutes. The default is 24h, which makes a push look like it did
+      # nothing at all.
+      WATCHTOWER_POLL_INTERVAL: "300"
     restart: unless-stopped
 
   # Nightly snapshot. VACUUM INTO is safe against a live WAL database; a plain
