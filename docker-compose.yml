@@ -25,7 +25,7 @@ services:
         # give away one already in use, so this must stay clear of the other
         # containers on the network — cloudflared's own address included. On a
         # collision the container refuses to start rather than quietly moving.
-        ipv4_address: 172.18.0.3
+        ipv4_address: 172.18.0.5
     volumes:
       - ./data:/data
     environment:

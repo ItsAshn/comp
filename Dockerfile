@@ -33,7 +33,10 @@ COPY --from=builder /app/.next/static ./.next/static
 # Read at boot by instrumentation.ts; not part of the traced bundle.
 COPY --from=builder /app/drizzle ./drizzle
 
-# uid 1000 matches the typical host user, so the bind-mounted ./data is writable.
+# This only covers the image's own /data — a bind mount shadows it entirely, so
+# the *host* directory's ownership is what decides whether the app can write.
+# The app runs as `node` (uid 1000), so ./data on the host must be owned by
+# 1000; see "Deploying to the VPS" in the README.
 RUN mkdir -p /data && chown -R node:node /data /app
 USER node
 

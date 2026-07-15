@@ -111,19 +111,41 @@ environment or on the volume.
 
 **1. Join the tunnel's network.** `cloudflareTunnel` is an external network: this project
 only joins it, and compose fails loudly if it's missing. The app takes the fixed address
-**`172.18.0.3`** on it, hardcoded in `docker-compose.yml`:
+**`172.18.0.5`** on it, hardcoded in `docker-compose.yml`:
 
 ```bash
-docker network inspect cloudflareTunnel   # confirm 172.18.0.3 is free
+docker network inspect cloudflareTunnel   # confirm 172.18.0.5 is free
 cp .env.example .env                      # set TZ
+
+# Create the data directory *before* the first `up`, owned by uid 1000.
+mkdir -p data backups
+sudo chown -R 1000:1000 data backups
+
 docker compose up -d          # pulls; never builds
 ```
 
-Check first, because Docker hands out dynamic addresses from this same subnet and won't give
-away one that's taken — `172.18.0.3` is low enough to be in the range it assigns from, and
-cloudflared itself may already hold it. On a collision the container refuses to start rather
-than quietly moving somewhere else; change the address in `docker-compose.yml` (and step 2)
-if so.
+Check the address first, because Docker hands out dynamic addresses from this same subnet and
+won't give away one that's taken — low numbers like this are well inside the range it assigns
+from, and cloudflared itself may already hold one. The failure is loud:
+
+```
+failed to set up container networking: Address already in use
+```
+
+Only `app` can hit it, being the only service that asks for a specific address. Pick another
+free one in `docker-compose.yml` and update step 2 to match.
+
+**Don't skip the `mkdir`/`chown` either.** `data/` is gitignored, so it doesn't exist after a
+fresh clone — and Docker creates a missing bind-mount source as **root**. The app runs as
+`node` (uid 1000) and then can't write to its own database. The image's own `chown` doesn't
+help: a bind mount shadows it, so the host directory's ownership is the only one that counts.
+This failure is quieter, and names neither permissions nor the directory:
+
+```
+SqliteError: attempt to write a readonly database   code: 'SQLITE_READONLY'
+```
+
+Same cure whenever it appears — `sudo chown -R 1000:1000 data`, then `docker compose up -d`.
 
 **2. Add the ingress rule.** In the `cloudflared` config on the VPS, route the hostname to
 that address, above the catch-all, then restart cloudflared:
@@ -131,7 +153,7 @@ that address, above the catch-all, then restart cloudflared:
 ```yaml
 ingress:
   - hostname: comp.stasi-cloud.com
-    service: http://172.18.0.3:3000   # matches docker-compose.yml
+    service: http://172.18.0.5:3000   # matches docker-compose.yml
   - service: http_status:404          # must stay last
 ```
 
@@ -240,7 +262,19 @@ sqlite3 /data/comp.db "VACUUM INTO '/backups/comp-$(date +%F).db'"
 a torn write and silently produce a corrupt copy — don't back up that way.
 
 To restore, stop the app and copy a snapshot over `./data/comp.db` (removing the stale
-`-wal`/`-shm` files alongside it).
+`-wal`/`-shm` files alongside it):
+
+```bash
+docker compose stop app
+rm -f data/comp.db-wal data/comp.db-shm
+cp backups/comp-2026-07-15.db data/comp.db
+sudo chown 1000:1000 data/comp.db     # the sidecar writes snapshots as root
+docker compose start app
+```
+
+That `chown` is not optional. The backup sidecar runs as root, so its snapshots are
+root-owned; copying one into place as root leaves the app — uid 1000 — with a database it can
+read but not write, and it dies on boot with `SQLITE_READONLY`.
 
 > The `watchtower` sidecar is not a second copy of this. It updates container *images* and
 > never touches volume data, so it keeps zero copies of your entries — and by applying
