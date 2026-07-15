@@ -12,11 +12,12 @@ services:
       - "3000"
     networks:
       cloudflareTunnel:
-        # Fixed address for the tunnel's ingress rule. Docker hands out dynamic
-        # addresses from this same subnet and won't hand over one already in
-        # use, so pick a high, unused host number — on a collision the
-        # container refuses to start rather than quietly moving.
-        ipv4_address: ${APP_IP:?set APP_IP in .env — a free address on the cloudflareTunnel subnet, e.g. 172.18.0.20}
+        # Fixed address, so the tunnel's ingress rule has a stable target.
+        # Docker hands out dynamic addresses from this same subnet and won't
+        # give away one already in use, so this must stay clear of the other
+        # containers on the network — cloudflared's own address included. On a
+        # collision the container refuses to start rather than quietly moving.
+        ipv4_address: 172.18.0.3
       # `backup` shares ./data, not the network — but the app still needs a
       # default network for outbound traffic (image pulls of its own, DNS).
       default:

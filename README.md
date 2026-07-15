@@ -87,17 +87,20 @@ needs **no inbound ports open at all** — not even 80 or 443. The tunnel dials 
 IP address is never published either (see step 3), so there's no public surface to find.
 
 **1. Join the tunnel's network.** `cloudflareTunnel` is an external network: this project
-only joins it, and compose fails loudly if it's missing. Give the app a free address on it:
+only joins it, and compose fails loudly if it's missing. The app takes the fixed address
+**`172.18.0.3`** on it, hardcoded in `docker-compose.yml`:
 
 ```bash
-docker network inspect cloudflareTunnel   # the subnet, and what's already on it
-cp .env.example .env                      # set APP_IP (and TZ)
+docker network inspect cloudflareTunnel   # confirm 172.18.0.3 is free
+cp .env.example .env                      # set TZ
 docker compose up -d --build
 ```
 
-`APP_IP` must sit inside that subnet and be unused. Docker hands out dynamic addresses from
-the same range and won't give away one already taken, so pick a high host number — on a
-collision the container refuses to start rather than quietly moving somewhere else.
+Check first, because Docker hands out dynamic addresses from this same subnet and won't give
+away one that's taken — `172.18.0.3` is low enough to be in the range it assigns from, and
+cloudflared itself may already hold it. On a collision the container refuses to start rather
+than quietly moving somewhere else; change the address in `docker-compose.yml` (and step 2)
+if so.
 
 **2. Add the ingress rule.** In the `cloudflared` config on the VPS, route the hostname to
 that address, above the catch-all, then restart cloudflared:
@@ -105,13 +108,14 @@ that address, above the catch-all, then restart cloudflared:
 ```yaml
 ingress:
   - hostname: comp.stasi-cloud.com
-    service: http://172.18.0.20:3000   # your APP_IP
-  - service: http_status:404           # must stay last
+    service: http://172.18.0.3:3000   # matches docker-compose.yml
+  - service: http_status:404          # must stay last
 ```
 
 Plain `http://` is correct: that hop is a local Docker network, and the encrypted leg is the
-tunnel itself. Because both containers share the network you can also use `http://comp-app:3000`
-and skip `APP_IP` entirely — Docker resolves the container name.
+tunnel itself. Because both containers share the network you can also use
+`http://comp-app:3000` — Docker resolves the container name, which sidesteps the address
+question entirely.
 
 Don't set `httpHostHeader` on this rule. It rewrites `Host`, which then no longer matches the
 browser's `Origin`, and Next rejects every Server Action as cross-site — the pages load fine
