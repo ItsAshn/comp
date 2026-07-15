@@ -3,7 +3,8 @@
 A two-person weight-loss competition. Both of you log weight, steps and workout time by
 hand; the app works out who's winning.
 
-Next.js + SQLite, self-hosted with Docker. No external database, no third-party services.
+Next.js + SQLite, self-hosted with Docker on your own VPS. No external database; Cloudflare
+Tunnel is the only thing between it and the internet.
 
 ## The rule
 
@@ -77,18 +78,67 @@ best with two.
 
 ## Deploying to the VPS
 
+The **`cloudflared` already running there** fronts this app: it holds an outbound connection
+to Cloudflare, and requests arrive back down it. TLS is terminated at Cloudflare's edge, so
+this project ships no web server, no certificates and no ACME dance of its own.
+
+Nothing here listens on the public internet. The app publishes **no ports**, and the VPS
+needs **no inbound ports open at all** — not even 80 or 443. The tunnel dials out. The box's
+IP address is never published either (see step 3), so there's no public surface to find.
+
+**1. Join the tunnel's network.** `cloudflareTunnel` is an external network: this project
+only joins it, and compose fails loudly if it's missing. Give the app a free address on it:
+
 ```bash
+docker network inspect cloudflareTunnel   # the subnet, and what's already on it
+cp .env.example .env                      # set APP_IP (and TZ)
 docker compose up -d --build
 ```
 
-The app binds **`127.0.0.1:3000`** — it is not reachable from the internet. Point your
-Cloudflare tunnel at `localhost:3000`; that tunnel is the only way in.
+`APP_IP` must sit inside that subnet and be unused. Docker hands out dynamic addresses from
+the same range and won't give away one already taken, so pick a high host number — on a
+collision the container refuses to start rather than quietly moving somewhere else.
+
+**2. Add the ingress rule.** In the `cloudflared` config on the VPS, route the hostname to
+that address, above the catch-all, then restart cloudflared:
+
+```yaml
+ingress:
+  - hostname: comp.stasi-cloud.com
+    service: http://172.18.0.20:3000   # your APP_IP
+  - service: http_status:404           # must stay last
+```
+
+Plain `http://` is correct: that hop is a local Docker network, and the encrypted leg is the
+tunnel itself. Because both containers share the network you can also use `http://comp-app:3000`
+and skip `APP_IP` entirely — Docker resolves the container name.
+
+Don't set `httpHostHeader` on this rule. It rewrites `Host`, which then no longer matches the
+browser's `Origin`, and Next rejects every Server Action as cross-site — the pages load fine
+and every form silently fails.
+
+**3. Point DNS at the tunnel.**
+
+```bash
+cloudflared tunnel route dns <tunnel-name> comp.stasi-cloud.com
+```
+
+That writes a **CNAME** for `comp` to `<tunnel-id>.cfargotunnel.com`, **proxied / orange
+cloud** — that target only resolves inside Cloudflare's network, so DNS-only would break it.
+There's no `A` record and nothing pointing at the VPS.
+
+`stasi-cloud.com` must be a zone in the same Cloudflare account as the tunnel; it's otherwise
+independent of whatever domain your other services use. Keep the app on the `comp`
+**subdomain** rather than the apex: the `Strict-Transport-Security` header (now set in
+`next.config.ts`) carries `includeSubDomains`, so serving it from `stasi-cloud.com` itself
+would force *every* sibling subdomain to HTTPS for a year in any browser that had seen it —
+including any still on plain HTTP.
 
 On first boot the container migrates itself, so an empty `./data` volume is all you need.
 It starts with **no accounts** on purpose: visit the site and claim the admin account.
 
-Set `TZ` in `docker-compose.yml` to your own timezone. "Today" is decided server-side, so a
-container left on UTC can file an evening weigh-in under tomorrow.
+Set `TZ` in `.env` to your own timezone. "Today" is decided server-side, so a container left
+on UTC can file an evening weigh-in under tomorrow.
 
 ## Data model
 

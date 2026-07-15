@@ -1,9 +1,25 @@
 services:
   app:
     build: .
-    # Loopback only: your Cloudflare tunnel is the sole way in from outside.
-    ports:
-      - "127.0.0.1:3000:3000"
+    # Stable DNS name, so the tunnel's ingress rule can target `comp-app:3000`
+    # instead of the address below. Without this, compose would name the
+    # container `comp-app-1` and a project rename would silently break it.
+    container_name: comp-app
+    # No `ports`: publishing 3000 would expose the app on the VPS's public IP,
+    # letting anyone reach it directly and skip Cloudflare entirely. Reachable
+    # only from cloudflared over the shared network below.
+    expose:
+      - "3000"
+    networks:
+      cloudflareTunnel:
+        # Fixed address for the tunnel's ingress rule. Docker hands out dynamic
+        # addresses from this same subnet and won't hand over one already in
+        # use, so pick a high, unused host number — on a collision the
+        # container refuses to start rather than quietly moving.
+        ipv4_address: ${APP_IP:?set APP_IP in .env — a free address on the cloudflareTunnel subnet, e.g. 172.18.0.20}
+      # `backup` shares ./data, not the network — but the app still needs a
+      # default network for outbound traffic (image pulls of its own, DNS).
+      default:
     volumes:
       - ./data:/data
     environment:
@@ -37,3 +53,10 @@ services:
           sleep 86400
         done
     restart: unless-stopped
+
+networks:
+  # Created by the compose project that runs cloudflared — this one only joins
+  # it. `external` means compose fails loudly if it's missing instead of
+  # quietly creating an empty network cloudflared isn't on.
+  cloudflareTunnel:
+    external: true
