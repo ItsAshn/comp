@@ -33,6 +33,9 @@ export function proxy(request: NextRequest) {
 
 export const config = {
   // Skip Next internals and static assets; without this the redirect above
-  // would also swallow CSS and JS requests.
-  matcher: ["/((?!_next/static|_next/image|favicon.ico|.*\\.svg$).*)"],
+  // would also swallow CSS and JS requests. The manifest and icon PNGs must
+  // stay reachable logged-out too — the browser fetches them cookieless when
+  // installing the app to a home screen, and a redirect to /login there means
+  // no icon and no install.
+  matcher: ["/((?!_next/static|_next/image|favicon.ico|manifest.webmanifest|.*\\.svg$|.*\\.png$).*)"],
 };

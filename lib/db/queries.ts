@@ -23,6 +23,7 @@ export function getCompetitors(): Competitor[] {
       userId: entries.userId,
       performedOn: entries.performedOn,
       weightKg: entries.weightKg,
+      bodyFatPct: entries.bodyFatPct,
       steps: entries.steps,
       workoutMin: entries.workoutMin,
     })
@@ -51,6 +52,19 @@ export function getEntry(userId: number, performedOn: string) {
     .get();
 }
 
+/** The viewer's most recent weigh-in, if any — the log form shows it as the
+ *  weight field's placeholder so logging from the scale is a one-glance diff. */
+export function getLastWeight(userId: number): number | null {
+  const row = db
+    .select({ weightKg: entries.weightKg })
+    .from(entries)
+    .where(and(eq(entries.userId, userId), sql`${entries.weightKg} is not null`))
+    .orderBy(sql`${entries.performedOn} desc`)
+    .limit(1)
+    .get();
+  return row?.weightKg ?? null;
+}
+
 function withinRange(range: Range, extra?: SQL): SQL | undefined {
   const start = rangeStart(range);
   return and(start ? gte(entries.performedOn, start) : undefined, extra);
@@ -63,6 +77,7 @@ export function getEntries(range: Range, userId?: number) {
       userId: entries.userId,
       performedOn: entries.performedOn,
       weightKg: entries.weightKg,
+      bodyFatPct: entries.bodyFatPct,
       steps: entries.steps,
       workoutMin: entries.workoutMin,
       notes: entries.notes,

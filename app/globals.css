@@ -219,6 +219,23 @@
   }
   html {
     @apply font-sans;
+    /* Pages flip between scrolling (dashboard) and not (login) as you
+       navigate; without a reserved gutter the centred column shifts sideways
+       every time the scrollbar appears. */
+    scrollbar-gutter: stable;
+  }
+  /* Mobile touch feel: the OS's grey tap flash fights the app's own hover and
+     active states, and `manipulation` drops the double-tap-zoom wait so taps
+     land immediately. Zooming the page itself still works. */
+  a,
+  button,
+  input,
+  select,
+  textarea,
+  summary,
+  [role="button"] {
+    -webkit-tap-highlight-color: transparent;
+    touch-action: manipulation;
   }
 }
 

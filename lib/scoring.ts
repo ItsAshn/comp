@@ -13,6 +13,7 @@ import { daysBetween, isoDaysAgo, toISODate } from "./ranges";
 export interface DayEntry {
   performedOn: string;
   weightKg: number | null;
+  bodyFatPct: number | null;
   steps: number | null;
   workoutMin: number | null;
 }
@@ -44,6 +45,10 @@ export interface Standing {
   kgLost: number;
   startWeightKg: number | null;
   currentWeightKg: number | null;
+  /** Latest body-fat reading, and the change since the first one. Purely
+   *  informational — the score never looks at these. */
+  currentBodyFatPct: number | null;
+  bodyFatDeltaPct: number | null;
   goalWeightKg: number | null;
   /** Percent of the start→goal distance covered, null when no goal is set. */
   goalProgressPct: number | null;
@@ -145,6 +150,17 @@ export function summarise(competitor: Competitor, today = toISODate()): Standing
   const startWeightKg = weighIns.at(0)?.weightKg ?? null;
   const currentWeightKg = weighIns.at(-1)?.weightKg ?? null;
 
+  // Body fat keeps its own timeline: a caliper day and a scale day are often
+  // different days, so it can't ride along with the weigh-ins.
+  const fatReadings = sorted.filter((e) => e.bodyFatPct != null);
+  const startBodyFatPct = fatReadings.at(0)?.bodyFatPct ?? null;
+  const currentBodyFatPct = fatReadings.at(-1)?.bodyFatPct ?? null;
+  const bodyFatDeltaPct =
+    // Two readings, not one twice: a delta of a reading against itself is noise.
+    fatReadings.length > 1 && startBodyFatPct != null && currentBodyFatPct != null
+      ? round(currentBodyFatPct - startBodyFatPct)
+      : null;
+
   const kgLost =
     startWeightKg != null && currentWeightKg != null ? startWeightKg - currentWeightKg : 0;
   const pctLost = startWeightKg != null && startWeightKg > 0 ? (kgLost / startWeightKg) * 100 : 0;
@@ -185,6 +201,8 @@ export function summarise(competitor: Competitor, today = toISODate()): Standing
     kgLost: round(kgLost, 1),
     startWeightKg,
     currentWeightKg,
+    currentBodyFatPct,
+    bodyFatDeltaPct,
     goalWeightKg,
     goalProgressPct: goalProgressPct == null ? null : round(goalProgressPct),
     kgPerWeek: round(kgPerWeek, 2),

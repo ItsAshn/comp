@@ -9,7 +9,7 @@ import { requireAdmin, requireViewer } from "@/lib/auth/dal";
 import { hashPassword, verifyPassword } from "@/lib/auth/password";
 import { createSession, destroySession } from "@/lib/auth/session";
 import { db } from "@/lib/db";
-import { users } from "@/lib/db/schema";
+import { sessions, users } from "@/lib/db/schema";
 import { slotForIndex } from "@/lib/palette";
 
 /**
@@ -24,13 +24,15 @@ function nameFrom(formData: FormData): string {
   return typeof raw === "string" ? raw : "";
 }
 
+const passwordRule = z.string().min(8, "Password must be at least 8 characters").max(200);
+
 const credentials = z.object({
   name: z
     .string()
     .trim()
     .min(2, "Name must be at least 2 characters")
     .max(24, "Name must be 24 characters or fewer"),
-  password: z.string().min(8, "Password must be at least 8 characters").max(200),
+  password: passwordRule,
 });
 
 /** Names are compared case-insensitively so "Ash" and "ash" can't both exist
@@ -134,6 +136,41 @@ export async function deleteUser(userId: number) {
 
   revalidatePath("/admin");
   revalidatePath("/");
+}
+
+/**
+ * Anyone signed in can replace the password the admin first set for them.
+ * Requires the current password even though the caller holds a valid session:
+ * a walked-away-from laptop shouldn't be enough to lock someone out of their
+ * own account.
+ */
+export async function changePassword(_prev: FormState, formData: FormData): Promise<FormState> {
+  const viewer = await requireViewer();
+
+  const parsed = passwordRule.safeParse(formData.get("newPassword"));
+  if (!parsed.success) return { error: parsed.error.issues[0].message };
+
+  const newPassword = parsed.data;
+  if (formData.get("confirm") !== newPassword) return { error: "New passwords do not match" };
+
+  const current = formData.get("currentPassword");
+  const user = db.select().from(users).where(eq(users.id, viewer.id)).get();
+
+  if (!user || typeof current !== "string" || !(await verifyPassword(current, user.passwordHash))) {
+    return { error: "Current password is incorrect" };
+  }
+
+  db.update(users)
+    .set({ passwordHash: await hashPassword(newPassword) })
+    .where(eq(users.id, viewer.id))
+    .run();
+
+  // The old password may be known to whoever set it, so every existing session
+  // is revoked; a fresh one is issued so this device stays signed in.
+  db.delete(sessions).where(eq(sessions.userId, viewer.id)).run();
+  await createSession(viewer.id);
+
+  return null;
 }
 
 const goalSchema = z.preprocess(

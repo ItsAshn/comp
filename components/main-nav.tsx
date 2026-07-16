@@ -2,9 +2,27 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
+import { motion, useReducedMotion } from "motion/react";
 import { History, Plus, Settings, Trophy, Users, type LucideIcon } from "lucide-react";
 
+import { SPRING } from "@/components/motion";
 import { cn } from "@/lib/utils";
+
+/** The active-tab pill, shared by both navs: one element that glides between
+ *  tabs via layoutId rather than a fill that pops from one to the next. Layout
+ *  animations don't obey useReducedMotion on their own, so reduced motion gets
+ *  a plain span — the finished state, no travel. */
+function ActivePill({ layoutId, reduce }: { layoutId: string; reduce: boolean }) {
+  if (reduce) return <span aria-hidden className="absolute inset-0 rounded-full bg-volt" />;
+  return (
+    <motion.span
+      aria-hidden
+      layoutId={layoutId}
+      className="absolute inset-0 rounded-full bg-volt"
+      transition={SPRING}
+    />
+  );
+}
 
 export interface NavItem {
   href: string;
@@ -36,6 +54,7 @@ function isActive(pathname: string, href: string): boolean {
  *  on a light surface. */
 export function DesktopNav({ isAdmin }: { isAdmin: boolean }) {
   const pathname = usePathname();
+  const reduce = useReducedMotion() ?? false;
 
   return (
     <nav aria-label="Main" className="hidden md:block">
@@ -48,14 +67,15 @@ export function DesktopNav({ isAdmin }: { isAdmin: boolean }) {
                 href={href}
                 aria-current={active ? "page" : undefined}
                 className={cn(
-                  "flex items-center gap-1.5 rounded-full px-3.5 py-1.5 text-sm font-medium transition-colors",
+                  "relative flex items-center gap-1.5 rounded-full px-3.5 py-1.5 text-sm font-medium transition-colors",
                   active
-                    ? "bg-volt text-volt-foreground"
+                    ? "text-volt-foreground"
                     : "text-muted-foreground hover:bg-background/80 hover:text-foreground",
                 )}
               >
-                <Icon className="size-4" aria-hidden />
-                {label}
+                {active && <ActivePill layoutId="desktop-nav-pill" reduce={reduce} />}
+                <Icon className="relative size-4" aria-hidden />
+                <span className="relative">{label}</span>
               </Link>
             </li>
           );
@@ -73,6 +93,7 @@ export function DesktopNav({ isAdmin }: { isAdmin: boolean }) {
 export function MobileNav({ isAdmin }: { isAdmin: boolean }) {
   const pathname = usePathname();
   const items = itemsFor(isAdmin);
+  const reduce = useReducedMotion() ?? false;
 
   return (
     <nav
@@ -90,18 +111,19 @@ export function MobileNav({ isAdmin }: { isAdmin: boolean }) {
                 href={href}
                 aria-current={active ? "page" : undefined}
                 // min-h-14 keeps every tab past the 44px touch-target floor.
-                className="flex min-h-14 flex-col items-center justify-center gap-1 px-1 py-2"
+                className="group flex min-h-14 flex-col items-center justify-center gap-1 px-1 py-2"
               >
                 <span
                   className={cn(
-                    "flex h-7 w-12 items-center justify-center rounded-full transition-colors",
+                    "relative flex h-7 w-12 items-center justify-center rounded-full transition-transform group-active:scale-90 motion-reduce:transform-none",
                     // The active tab is a volt lozenge behind a near-black
                     // glyph. Tinting the glyph itself volt would be 1.18:1 on
                     // the light surface and effectively invisible.
-                    active ? "bg-volt text-volt-foreground" : "text-muted-foreground",
+                    active ? "text-volt-foreground" : "text-muted-foreground",
                   )}
                 >
-                  <Icon className="size-[18px]" aria-hidden />
+                  {active && <ActivePill layoutId="mobile-nav-pill" reduce={reduce} />}
+                  <Icon className="relative size-[18px]" aria-hidden />
                 </span>
                 <span
                   className={cn(

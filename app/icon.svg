@@ -1,0 +1,14 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32">
+  <!-- The header logo, as the favicon: volt tile, near-black trophy (the
+       lucide Trophy path, same as the UI). Volt-as-fill, ink on top — the same
+       contrast rule the chrome follows. -->
+  <rect width="32" height="32" rx="7" fill="#c8ff2e"/>
+  <g transform="translate(4 4)" fill="none" stroke="#0a0a0a" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M10 14.66v1.626a2 2 0 0 1-.976 1.696A5 5 0 0 0 7 21.978"/>
+    <path d="M14 14.66v1.626a2 2 0 0 0 .976 1.696A5 5 0 0 1 17 21.978"/>
+    <path d="M18 9h1.5a1 1 0 0 0 0-5H18"/>
+    <path d="M4 22h16"/>
+    <path d="M6 9a6 6 0 0 0 12 0V3a1 1 0 0 0-1-1H7a1 1 0 0 0-1 1z"/>
+    <path d="M6 9H4.5a1 1 0 0 1 0-5H6"/>
+  </g>
+</svg>

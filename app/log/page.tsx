@@ -1,10 +1,10 @@
-import { Footprints, Scale, Timer } from "lucide-react";
+import { Footprints, Percent, Scale, Timer } from "lucide-react";
 
 import { EntryForm } from "@/components/entry-form";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { requireViewer } from "@/lib/auth/dal";
-import { getEntry } from "@/lib/db/queries";
-import { formatCount, formatKg, formatMinutes, formatRelativeDate } from "@/lib/format";
+import { getEntry, getLastWeight } from "@/lib/db/queries";
+import { formatCount, formatKg, formatMinutes, formatPct, formatRelativeDate } from "@/lib/format";
 import { isISODate, toISODate } from "@/lib/ranges";
 
 export const metadata = { title: "Log · Comp" };
@@ -16,24 +16,40 @@ export const metadata = { title: "Log · Comp" };
 function DayTotals({
   entry,
 }: {
-  entry: { weightKg: number | null; steps: number | null; workoutMin: number | null };
+  entry: {
+    weightKg: number | null;
+    bodyFatPct: number | null;
+    steps: number | null;
+    workoutMin: number | null;
+    notes: string | null;
+  };
 }) {
   const totals = [
     entry.weightKg != null && { icon: Scale, label: formatKg(entry.weightKg) },
+    entry.bodyFatPct != null && { icon: Percent, label: `${formatPct(entry.bodyFatPct)} fat` },
     entry.steps != null && { icon: Footprints, label: formatCount(entry.steps) },
     entry.workoutMin != null && { icon: Timer, label: formatMinutes(entry.workoutMin) },
   ].filter((t) => t !== false);
 
-  if (totals.length === 0) return null;
+  if (totals.length === 0 && !entry.notes) return null;
 
   return (
-    <div className="flex flex-wrap items-center gap-x-4 gap-y-1 rounded-lg bg-muted/50 px-3 py-2.5">
-      {totals.map(({ icon: Icon, label }) => (
-        <span key={label} className="flex items-center gap-1.5 text-sm font-medium tabular-nums">
-          <Icon className="size-3.5 shrink-0 text-muted-foreground" aria-hidden />
-          {label}
-        </span>
-      ))}
+    <div className="space-y-1.5 rounded-lg bg-muted/50 px-3 py-2.5">
+      {totals.length > 0 && (
+        <div className="flex flex-wrap items-center gap-x-4 gap-y-1">
+          {totals.map(({ icon: Icon, label }) => (
+            <span
+              key={label}
+              className="flex items-center gap-1.5 text-sm font-medium tabular-nums"
+            >
+              <Icon className="size-3.5 shrink-0 text-muted-foreground" aria-hidden />
+              {label}
+            </span>
+          ))}
+        </div>
+      )}
+      {/* The note is part of what the day holds; a new one appends to it. */}
+      {entry.notes && <p className="text-xs text-muted-foreground">{entry.notes}</p>}
     </div>
   );
 }
@@ -61,6 +77,7 @@ export default async function LogPage({
   const date = isISODate(raw) && raw <= today ? raw : today;
 
   const existing = getEntry(viewer.id, date) ?? null;
+  const lastWeightKg = getLastWeight(viewer.id);
   const dayLabel = formatRelativeDate(date, today);
 
   return (
@@ -82,12 +99,20 @@ export default async function LogPage({
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-5">
-          {existing && <DayTotals entry={existing} />}
-
           {/* Keyed on the day so switching dates remounts the fields; the inputs
               are uncontrolled, so a plain re-render would leave whatever was
-              half-typed for the previous day sitting there. */}
-          <EntryForm key={date} today={today} date={date} hasEntry={existing != null} />
+              half-typed for the previous day sitting there. The totals ride
+              along as children so the form can dim them while the day they
+              belong to is being swapped out. */}
+          <EntryForm
+            key={date}
+            today={today}
+            date={date}
+            hasEntry={existing != null}
+            lastWeightKg={lastWeightKg}
+          >
+            {existing && <DayTotals entry={existing} />}
+          </EntryForm>
         </CardContent>
       </Card>
     </div>

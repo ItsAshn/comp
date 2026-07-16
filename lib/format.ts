@@ -14,6 +14,12 @@ export function formatPct(pct: number, places = 1): string {
   return `${pct.toFixed(places)}%`;
 }
 
+/** Signed change in percentage points: "−2.4%" is body fat going down. */
+export function formatPctDelta(pts: number, places = 1): string {
+  if (Math.abs(pts) < 0.05) return "0%";
+  return `${pts < 0 ? "−" : "+"}${Math.abs(pts).toFixed(places)}%`;
+}
+
 export function formatCount(n: number): string {
   return n.toLocaleString();
 }

@@ -50,16 +50,16 @@ console.log("\n--- percent lost is the score ---");
     userId: 1,
     name: "Heavy",
     entries: [
-      { performedOn: "2026-06-15", weightKg: 100, steps: null, workoutMin: null },
-      { performedOn: TODAY, weightKg: 96, steps: null, workoutMin: null },
+      { performedOn: "2026-06-15", weightKg: 100, bodyFatPct: null, steps: null, workoutMin: null },
+      { performedOn: TODAY, weightKg: 96, bodyFatPct: null, steps: null, workoutMin: null },
     ],
   });
   const light = competitor({
     userId: 2,
     name: "Light",
     entries: [
-      { performedOn: "2026-06-15", weightKg: 70, steps: null, workoutMin: null },
-      { performedOn: TODAY, weightKg: 66.5, steps: null, workoutMin: null },
+      { performedOn: "2026-06-15", weightKg: 70, bodyFatPct: null, steps: null, workoutMin: null },
+      { performedOn: TODAY, weightKg: 66.5, bodyFatPct: null, steps: null, workoutMin: null },
     ],
   });
 
@@ -80,8 +80,8 @@ console.log("\n--- rate is per elapsed day, not per weigh-in ---");
   const s = summarise(
     competitor({
       entries: [
-        { performedOn: "2026-06-17", weightKg: 90, steps: null, workoutMin: null },
-        { performedOn: TODAY, weightKg: 86, steps: null, workoutMin: null },
+        { performedOn: "2026-06-17", weightKg: 90, bodyFatPct: null, steps: null, workoutMin: null },
+        { performedOn: TODAY, weightKg: 86, bodyFatPct: null, steps: null, workoutMin: null },
       ],
     }),
     TODAY,
@@ -94,8 +94,8 @@ console.log("\n--- gaining weight scores negative ---");
   const s = summarise(
     competitor({
       entries: [
-        { performedOn: "2026-07-01", weightKg: 80, steps: null, workoutMin: null },
-        { performedOn: TODAY, weightKg: 82, steps: null, workoutMin: null },
+        { performedOn: "2026-07-01", weightKg: 80, bodyFatPct: null, steps: null, workoutMin: null },
+        { performedOn: TODAY, weightKg: 82, bodyFatPct: null, steps: null, workoutMin: null },
       ],
     }),
     TODAY,
@@ -108,7 +108,7 @@ console.log("\n--- a single weigh-in is a baseline, not progress ---");
 {
   const solo = competitor({
     name: "Solo",
-    entries: [{ performedOn: TODAY, weightKg: 88, steps: null, workoutMin: null }],
+    entries: [{ performedOn: TODAY, weightKg: 88, bodyFatPct: null, steps: null, workoutMin: null }],
   });
   const s = summarise(solo, TODAY);
   check("start equals current", [s.startWeightKg, s.currentWeightKg], [88, 88]);
@@ -123,8 +123,8 @@ console.log("\n--- goal progress ---");
     competitor({
       goalWeightKg: 80,
       entries: [
-        { performedOn: "2026-07-01", weightKg: 90, steps: null, workoutMin: null },
-        { performedOn: TODAY, weightKg: 85, steps: null, workoutMin: null },
+        { performedOn: "2026-07-01", weightKg: 90, bodyFatPct: null, steps: null, workoutMin: null },
+        { performedOn: TODAY, weightKg: 85, bodyFatPct: null, steps: null, workoutMin: null },
       ],
     }),
     TODAY,
@@ -137,8 +137,8 @@ console.log("\n--- goal progress ---");
     competitor({
       goalWeightKg: 95,
       entries: [
-        { performedOn: "2026-07-01", weightKg: 90, steps: null, workoutMin: null },
-        { performedOn: TODAY, weightKg: 88, steps: null, workoutMin: null },
+        { performedOn: "2026-07-01", weightKg: 90, bodyFatPct: null, steps: null, workoutMin: null },
+        { performedOn: TODAY, weightKg: 88, bodyFatPct: null, steps: null, workoutMin: null },
       ],
     }),
     TODAY,
@@ -151,9 +151,9 @@ console.log("\n--- streaks and totals ---");
   const s = summarise(
     competitor({
       entries: [
-        { performedOn: isoDaysAgo(2, new Date(`${TODAY}T00:00:00`)), weightKg: 90, steps: 8000, workoutMin: 30 },
-        { performedOn: isoDaysAgo(1, new Date(`${TODAY}T00:00:00`)), weightKg: 89, steps: 10000, workoutMin: null },
-        { performedOn: TODAY, weightKg: 89, steps: 6000, workoutMin: 60 },
+        { performedOn: isoDaysAgo(2, new Date(`${TODAY}T00:00:00`)), weightKg: 90, bodyFatPct: null, steps: 8000, workoutMin: 30 },
+        { performedOn: isoDaysAgo(1, new Date(`${TODAY}T00:00:00`)), weightKg: 89, bodyFatPct: null, steps: 10000, workoutMin: null },
+        { performedOn: TODAY, weightKg: 89, bodyFatPct: null, steps: 6000, workoutMin: 60 },
       ],
     }),
     TODAY,
@@ -170,8 +170,8 @@ console.log("\n--- a gap breaks the streak ---");
   const s = summarise(
     competitor({
       entries: [
-        { performedOn: "2026-07-01", weightKg: 90, steps: null, workoutMin: null },
-        { performedOn: TODAY, weightKg: 89, steps: null, workoutMin: null },
+        { performedOn: "2026-07-01", weightKg: 90, bodyFatPct: null, steps: null, workoutMin: null },
+        { performedOn: TODAY, weightKg: 89, bodyFatPct: null, steps: null, workoutMin: null },
       ],
     }),
     TODAY,
@@ -181,6 +181,33 @@ console.log("\n--- a gap breaks the streak ---");
 
 console.log("\n--- steps to distance ---");
 check("10,000 steps is 7.62km", Number(stepsToKm(10_000).toFixed(2)), 7.62);
+
+console.log("\n--- body fat rides along without touching the score ---");
+{
+  const s = summarise(
+    competitor({
+      entries: [
+        { performedOn: "2026-07-01", weightKg: 90, bodyFatPct: 30, steps: null, workoutMin: null },
+        { performedOn: TODAY, weightKg: 88, bodyFatPct: 27.5, steps: null, workoutMin: null },
+      ],
+    }),
+    TODAY,
+  );
+  check("latest reading is current", s.currentBodyFatPct, 27.5);
+  check("delta runs from the first reading", s.bodyFatDeltaPct, -2.5);
+  check("the score is still percent of weight lost", s.pctLost, 2.22);
+
+  const single = summarise(
+    competitor({
+      entries: [
+        { performedOn: TODAY, weightKg: null, bodyFatPct: 25, steps: null, workoutMin: null },
+      ],
+    }),
+    TODAY,
+  );
+  check("one reading is a baseline, not a delta", single.bodyFatDeltaPct, null);
+  check("a body-fat-only day still counts as logged", single.daysLogged, 1);
+}
 
 // tsx emits CJS, where top-level await isn't available — the async checks live
 // in here rather than at module scope.
@@ -216,9 +243,9 @@ async function main() {
       })
       .run();
 
-  log({ weightKg: 90, steps: 3000, notes: "morning walk" });
+  log({ weightKg: 90, bodyFatPct: 31, steps: 3000, notes: "morning walk" });
   log({ steps: 5000, workoutMin: 30 });
-  log({ weightKg: 89.5, workoutMin: 20, notes: "evening gym" });
+  log({ weightKg: 89.5, bodyFatPct: 30.4, workoutMin: 20, notes: "evening gym" });
 
   const rows = db.select().from(entries).where(eq(entries.userId, a.id)).all();
   check("one row per user per day", rows.length, 1);
@@ -227,6 +254,8 @@ async function main() {
   // Weights can't be summed, so the last one in is the day's reading.
   check("the latest weigh-in wins", rows[0].weightKg, 89.5);
   check("a log without a weight leaves the day's weight alone", rows[0].weightKg, 89.5);
+  // The middle log carried no reading, so 30.4 also proves absence leaves it be.
+  check("the latest body-fat reading wins", rows[0].bodyFatPct, 30.4);
   check("notes are joined, not overwritten", rows[0].notes, "morning walk · evening gym");
 
   // A metric nobody logged stays NULL: scoring averages over the days a metric

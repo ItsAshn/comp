@@ -83,12 +83,17 @@ async function main() {
       const trend = plan.startKg - plan.kgPerDay * elapsed;
       const weightKg = Number((trend + wobble(elapsed + plan.startKg)).toFixed(1));
       const trained = elapsed % 3 !== 0;
+      // Sparse on purpose — a weekly caliper reading, not a daily one — so the
+      // dashboard is exercised with the gaps real body-fat data has.
+      const measuredFat = elapsed % 7 === 2;
+      const bodyFatPct = Number((32 - elapsed * 0.08 + wobble(elapsed * 3)).toFixed(1));
 
       db.insert(entries)
         .values({
           userId: user.id,
           performedOn: isoDaysAgo(ago),
           weightKg,
+          bodyFatPct: measuredFat ? bodyFatPct : null,
           steps: Math.round(plan.baseSteps + wobble(elapsed) * 3000),
           workoutMin: trained ? 30 + ((elapsed * 7) % 40) : null,
         })

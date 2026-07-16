@@ -1,3 +1,4 @@
+import { ChangePasswordForm } from "@/components/change-password-form";
 import { GoalForm } from "@/components/goal-form";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { requireViewer } from "@/lib/auth/dal";
@@ -22,6 +23,18 @@ export default async function SettingsPage() {
         </CardHeader>
         <CardContent>
           <GoalForm goalWeightKg={viewer.goalWeightKg} />
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-base">Password</CardTitle>
+          <CardDescription>
+            Replace the password you were given. Other devices will be signed out.
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          <ChangePasswordForm />
         </CardContent>
       </Card>
     </div>

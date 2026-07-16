@@ -42,6 +42,8 @@ const entrySchema = z
       .refine(isISODate, "Pick a valid date")
       .refine((v) => v <= toISODate(), "You can't log a day that hasn't happened yet"),
     weightKg: optionalNumber(z.coerce.number().positive().max(1000)),
+    // A percentage of a body: anything at or past 100 is a typo, not a reading.
+    bodyFatPct: optionalNumber(z.coerce.number().positive().lt(100)),
     steps: optionalNumber(z.coerce.number().int().nonnegative().max(200_000)),
     workoutMin: optionalNumber(z.coerce.number().int().nonnegative().max(24 * 60)),
     notes: z.preprocess(
@@ -49,9 +51,17 @@ const entrySchema = z
       z.string().max(200).optional(),
     ),
   })
-  .refine((v) => v.weightKg != null || v.steps != null || v.workoutMin != null, {
-    message: "Add a weight, steps or workout time",
-  });
+  // Any one field makes a day worth saving — a lone note ("rest day, felt
+  // rough") still marks the day as logged. Only a fully empty form is rejected.
+  .refine(
+    (v) =>
+      v.weightKg != null ||
+      v.bodyFatPct != null ||
+      v.steps != null ||
+      v.workoutMin != null ||
+      v.notes != null,
+    { message: "Fill in at least one field" },
+  );
 
 /**
  * Adds one log to a day for the signed-in competitor. The user id comes from
@@ -72,13 +82,14 @@ export async function saveEntry(_prev: EntryState, formData: FormData): Promise<
     };
   }
 
-  const { performedOn, weightKg, steps, workoutMin, notes } = parsed.data;
+  const { performedOn, weightKg, bodyFatPct, steps, workoutMin, notes } = parsed.data;
 
   db.insert(entries)
     .values({
       userId: viewer.id,
       performedOn,
       weightKg: weightKg ?? null,
+      bodyFatPct: bodyFatPct ?? null,
       steps: steps ?? null,
       workoutMin: workoutMin ?? null,
       notes: notes ?? null,

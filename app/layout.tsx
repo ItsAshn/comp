@@ -3,6 +3,7 @@ import { Geist, Geist_Mono } from "next/font/google";
 import Link from "next/link";
 import { Trophy } from "lucide-react";
 
+import { HeaderChrome } from "@/components/header-chrome";
 import { DesktopNav, MobileNav } from "@/components/main-nav";
 import { ThemeProvider } from "@/components/theme-provider";
 import { ThemeToggle } from "@/components/theme-toggle";
@@ -48,7 +49,7 @@ export default async function RootLayout({ children }: { children: React.ReactNo
     >
       <body className="flex min-h-full flex-col">
         <ThemeProvider attribute="class" defaultTheme="system" enableSystem disableTransitionOnChange>
-          <header className="sticky top-0 z-30 border-b bg-background/80 backdrop-blur-md">
+          <HeaderChrome>
             <div className="mx-auto flex h-16 w-full max-w-6xl items-center gap-4 px-4 md:px-6">
               <Link
                 href="/"
@@ -67,7 +68,7 @@ export default async function RootLayout({ children }: { children: React.ReactNo
                 <ThemeToggle />
               </div>
             </div>
-          </header>
+          </HeaderChrome>
 
           {/* The bottom padding on mobile reserves the tab bar's height, so the
               last card can still be scrolled out from under it. */}

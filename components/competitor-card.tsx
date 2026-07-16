@@ -10,6 +10,7 @@ import {
   formatKgDelta,
   formatMinutes,
   formatPct,
+  formatPctDelta,
 } from "@/lib/format";
 import type { Standing } from "@/lib/scoring";
 import { cn } from "@/lib/utils";
@@ -113,8 +114,9 @@ export function CompetitorCard({
 
         {standing.weighIns === 0 ? (
           <p className="py-4 text-sm text-muted-foreground">
-            No weigh-ins yet. The first one sets the starting weight everything else is measured
-            against.
+            {standing.daysLogged > 0
+              ? "No weigh-ins yet — the activity below counts, but the race needs a starting weight."
+              : "No weigh-ins yet. The first one sets the starting weight everything else is measured against."}
           </p>
         ) : (
           <>
@@ -139,37 +141,55 @@ export function CompetitorCard({
                 value={`${formatKgDelta(standing.recentKgPerWeek, 2)}/wk`}
                 hint="Current momentum"
               />
+              {/* Only once someone has measured it — an empty stat would nag
+                  the competitor who doesn't own calipers. Informational only;
+                  the score never looks at it. */}
+              {standing.currentBodyFatPct != null && (
+                <Stat
+                  label="Body fat"
+                  value={formatPct(standing.currentBodyFatPct)}
+                  hint={
+                    standing.bodyFatDeltaPct != null
+                      ? `${formatPctDelta(standing.bodyFatDeltaPct)} since first reading`
+                      : "First reading"
+                  }
+                />
+              )}
             </div>
 
             <GoalMeter standing={standing} />
-
-            <div className="mt-auto grid grid-cols-3 gap-4 border-t pt-4">
-              <Stat
-                label="Steps/day"
-                value={formatCount(standing.avgSteps)}
-                hint={`${formatCount(standing.totalSteps)} total`}
-              />
-              <Stat
-                label="Training"
-                value={formatMinutes(standing.totalWorkoutMin)}
-                hint={`${formatMinutes(standing.avgWorkoutMin)} a session`}
-              />
-              <div className="space-y-1">
-                <p className="eyebrow text-muted-foreground">Streak</p>
-                <p className="stat-figure flex items-center gap-1 text-lg leading-none">
-                  {/* Volt-ink, not volt: this is a glyph that has to be read on
-                      the card surface (7.27:1), where the fill would vanish. */}
-                  {standing.streak > 0 && (
-                    <Flame className="size-4 shrink-0 text-volt-ink" aria-hidden />
-                  )}
-                  {standing.streak}d
-                </p>
-                <p className="text-xs leading-tight text-muted-foreground">
-                  {standing.daysLogged} days logged
-                </p>
-              </div>
-            </div>
           </>
+        )}
+
+        {/* Outside the weigh-in gate on purpose: a steps-only week is still a
+            week of work, and hiding it would read as "log weight or nothing". */}
+        {standing.daysLogged > 0 && (
+          <div className="mt-auto grid grid-cols-3 gap-4 border-t pt-4">
+            <Stat
+              label="Steps/day"
+              value={formatCount(standing.avgSteps)}
+              hint={`${formatCount(standing.totalSteps)} total`}
+            />
+            <Stat
+              label="Training"
+              value={formatMinutes(standing.totalWorkoutMin)}
+              hint={`${formatMinutes(standing.avgWorkoutMin)} a session`}
+            />
+            <div className="space-y-1">
+              <p className="eyebrow text-muted-foreground">Streak</p>
+              <p className="stat-figure flex items-center gap-1 text-lg leading-none">
+                {/* Volt-ink, not volt: this is a glyph that has to be read on
+                    the card surface (7.27:1), where the fill would vanish. */}
+                {standing.streak > 0 && (
+                  <Flame className="size-4 shrink-0 text-volt-ink" aria-hidden />
+                )}
+                {standing.streak}d
+              </p>
+              <p className="text-xs leading-tight text-muted-foreground">
+                {standing.daysLogged} days logged
+              </p>
+            </div>
+          </div>
         )}
       </CardContent>
     </Card>

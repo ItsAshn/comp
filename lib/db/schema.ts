@@ -73,6 +73,9 @@ export const entries = sqliteTable(
      *  range filtering free of timezone skew. */
     performedOn: text("performed_on").notNull(),
     weightKg: real("weight_kg"),
+    /** Percent of body weight, 0–100. Informational only — the competition is
+     *  scored on percent of weight lost, never on this. */
+    bodyFatPct: real("body_fat_pct"),
     steps: integer("steps"),
     workoutMin: integer("workout_min"),
     notes: text("notes"),
@@ -96,9 +99,10 @@ export const entries = sqliteTable(
  * to all day long: a morning walk and an evening one are two logs and one
  * eight-thousand-step day.
  *
- * Weight is the exception — you can't add two weigh-ins together, so the latest
- * reading of the day wins and earlier ones read as corrections of it. Notes are
- * joined instead of replaced, so the morning's note survives the evening's.
+ * Weight and body fat are the exceptions — you can't add two readings together,
+ * so the latest one of the day wins and earlier ones read as corrections of it.
+ * Notes are joined instead of replaced, so the morning's note survives the
+ * evening's.
  *
  * Every branch preserves NULL rather than folding it to 0: scoring counts the
  * days a metric was actually recorded, and a 0 there would claim you walked
@@ -106,6 +110,7 @@ export const entries = sqliteTable(
  */
 export const accumulateDay = {
   weightKg: sql`coalesce(excluded.weight_kg, ${entries.weightKg})`,
+  bodyFatPct: sql`coalesce(excluded.body_fat_pct, ${entries.bodyFatPct})`,
   steps: sql`case
     when excluded.steps is null then ${entries.steps}
     else coalesce(${entries.steps}, 0) + excluded.steps
