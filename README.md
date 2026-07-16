@@ -17,16 +17,6 @@ Your **starting weight is your first weigh-in**; there's nothing to configure. E
 else on the dashboard (steps, training time, streaks, goal weight) is context, not score.
 A goal weight only drives your own progress meter and never affects the standings.
 
-## Why SQLite on a VPS
-
-The original idea was SQLite on Vercel. That isn't possible — Vercel Functions run on a
-read-only filesystem with only an ephemeral `/tmp`, so the database file would vanish
-between invocations. Vercel also has no first-party database (even *Vercel Postgres* is
-Neon via their Marketplace), so every Vercel path needs an external provider.
-
-A VPS has a real disk, so SQLite works exactly as designed: one file, one process, no
-network hop. For two users this is the right architecture, not a compromise.
-
 ## Stack
 
 Next.js 16 (App Router, Server Actions) · React 19 · better-sqlite3 · Drizzle ORM ·
@@ -60,21 +50,6 @@ pnpm db:verify      # scoring, password hashing and DB constraints (throwaway da
 pnpm lint
 pnpm build
 ```
-
-## Accounts
-
-There is no public sign-up, and no way to reset a forgotten password from the UI.
-
-1. **The first person to load the app becomes the admin.** `/setup` is only reachable while
-   the database has zero users; after that it redirects away, so the door closes behind you.
-2. The admin creates the opponent's account from **Accounts** and hands over the password.
-
-Sessions are server-side rows. The cookie holds a random token and the table stores only its
-SHA-256 digest, so a stolen database yields no usable cookies. Passwords are scrypt hashes
-with a per-user salt.
-
-The app is built as a duel. A third account still gets ranked, but the head-to-head reads
-best with two.
 
 ## Deploying to the VPS
 
