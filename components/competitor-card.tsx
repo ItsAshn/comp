@@ -1,6 +1,7 @@
 import { Flame } from "lucide-react";
 
 import { MeterBar } from "@/components/motion";
+import { StepHeatmap } from "@/components/step-heatmap";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import {
@@ -131,15 +132,29 @@ export function CompetitorCard({
                 value={formatPct(standing.pctLost, 2)}
                 hint={`${formatKgDelta(standing.kgLost)} from ${formatKg(standing.startWeightKg!)}`}
               />
+              {/* Both paces read "—" rather than "0/wk" until there are two
+                  weigh-ins to draw a line between. A zero would be a claim we
+                  haven't measured: it says you held steady, when the truth is
+                  nobody has weighed you twice. */}
               <Stat
                 label="Pace"
-                value={`${formatKgDelta(standing.kgPerWeek, 2)}/wk`}
-                hint="Since the first weigh-in"
+                value={
+                  standing.kgPerWeek == null ? "—" : `${formatKgDelta(standing.kgPerWeek, 2)}/wk`
+                }
+                hint={standing.kgPerWeek == null ? "Needs a second weigh-in" : "Since the first weigh-in"}
               />
               <Stat
                 label="Last 14 days"
-                value={`${formatKgDelta(standing.recentKgPerWeek, 2)}/wk`}
-                hint="Current momentum"
+                value={
+                  standing.recentKgPerWeek == null
+                    ? "—"
+                    : `${formatKgDelta(standing.recentKgPerWeek, 2)}/wk`
+                }
+                hint={
+                  standing.recentKgPerWeek == null
+                    ? "Needs two weigh-ins this fortnight"
+                    : "Current momentum"
+                }
               />
               {/* Only once someone has measured it — an empty stat would nag
                   the competitor who doesn't own calipers. Informational only;
@@ -164,31 +179,38 @@ export function CompetitorCard({
         {/* Outside the weigh-in gate on purpose: a steps-only week is still a
             week of work, and hiding it would read as "log weight or nothing". */}
         {standing.daysLogged > 0 && (
-          <div className="mt-auto grid grid-cols-3 gap-4 border-t pt-4">
-            <Stat
-              label="Steps/day"
-              value={formatCount(standing.avgSteps)}
-              hint={`${formatCount(standing.totalSteps)} total`}
-            />
-            <Stat
-              label="Training"
-              value={formatMinutes(standing.totalWorkoutMin)}
-              hint={`${formatMinutes(standing.avgWorkoutMin)} a session`}
-            />
-            <div className="space-y-1">
-              <p className="eyebrow text-muted-foreground">Streak</p>
-              <p className="stat-figure flex items-center gap-1 text-lg leading-none">
-                {/* Volt-ink, not volt: this is a glyph that has to be read on
-                    the card surface (7.27:1), where the fill would vanish. */}
-                {standing.streak > 0 && (
-                  <Flame className="size-4 shrink-0 text-volt-ink" aria-hidden />
-                )}
-                {standing.streak}d
-              </p>
-              <p className="text-xs leading-tight text-muted-foreground">
-                {standing.daysLogged} days logged
-              </p>
+          <div className="mt-auto space-y-4 border-t pt-4">
+            <div className="grid grid-cols-3 gap-4">
+              {/* The trailing week, divided by seven whether or not a day was
+                  logged — so a week off reads as one. The all-time total is a
+                  versus board's job, not this card's. */}
+              <Stat
+                label="Steps/day"
+                value={formatCount(standing.avgSteps7d)}
+                hint="Last 7 days"
+              />
+              <Stat
+                label="Training"
+                value={formatMinutes(standing.totalWorkoutMin)}
+                hint={`${formatMinutes(standing.avgWorkoutMin)} a session`}
+              />
+              <div className="space-y-1">
+                <p className="eyebrow text-muted-foreground">Streak</p>
+                <p className="stat-figure flex items-center gap-1 text-lg leading-none">
+                  {/* Volt-ink, not volt: this is a glyph that has to be read on
+                      the card surface (7.27:1), where the fill would vanish. */}
+                  {standing.streak > 0 && (
+                    <Flame className="size-4 shrink-0 text-volt-ink" aria-hidden />
+                  )}
+                  {standing.streak}d
+                </p>
+                <p className="text-xs leading-tight text-muted-foreground">
+                  {standing.daysLogged} days logged
+                </p>
+              </div>
             </div>
+
+            <StepHeatmap standing={standing} />
           </div>
         )}
       </CardContent>

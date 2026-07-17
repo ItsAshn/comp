@@ -11,8 +11,8 @@ import { migrate } from "drizzle-orm/better-sqlite3/migrator";
 import { hashPassword, verifyPassword } from "../lib/auth/password";
 import { db } from "../lib/db";
 import { accumulateDay, entries, users } from "../lib/db/schema";
-import { isoDaysAgo } from "../lib/ranges";
-import { scoreboard, stepsToKm, summarise, type Competitor } from "../lib/scoring";
+import { daysBetween, isoDaysAgo } from "../lib/ranges";
+import { GOAL_STEPS, scoreboard, stepsToKm, summarise, type Competitor } from "../lib/scoring";
 
 let failures = 0;
 
@@ -113,7 +113,10 @@ console.log("\n--- a single weigh-in is a baseline, not progress ---");
   const s = summarise(solo, TODAY);
   check("start equals current", [s.startWeightKg, s.currentWeightKg], [88, 88]);
   check("nothing lost yet", s.pctLost, 0);
-  check("rate is flat, not divide-by-zero", s.kgPerWeek, 0);
+  // Not 0: a competitor weighed once hasn't held steady, they simply haven't
+  // been measured twice, and "0 kg/wk" would report the second as the first.
+  check("rate is unmeasured, not flat", s.kgPerWeek, null);
+  check("momentum is unmeasured too", s.recentKgPerWeek, null);
   check("no leader before anyone has moved", scoreboard([solo], TODAY).leader, null);
 }
 
@@ -179,8 +182,159 @@ console.log("\n--- a gap breaks the streak ---");
   check("only today counts", s.streak, 1);
 }
 
+console.log("\n--- the 7-day average is a window of days, not of weigh-ins ---");
+{
+  // Readings every fifth day, spanning a month. A count-based slice would take
+  // all seven and call a month's average a week's.
+  const sparse = summarise(
+    competitor({
+      entries: [
+        { performedOn: "2026-06-16", weightKg: 100, bodyFatPct: null, steps: null, workoutMin: null },
+        { performedOn: "2026-06-21", weightKg: 99, bodyFatPct: null, steps: null, workoutMin: null },
+        { performedOn: "2026-06-26", weightKg: 98, bodyFatPct: null, steps: null, workoutMin: null },
+        { performedOn: "2026-07-01", weightKg: 97, bodyFatPct: null, steps: null, workoutMin: null },
+        { performedOn: "2026-07-06", weightKg: 96, bodyFatPct: null, steps: null, workoutMin: null },
+        { performedOn: "2026-07-11", weightKg: 95, bodyFatPct: null, steps: null, workoutMin: null },
+        { performedOn: TODAY, weightKg: 94, bodyFatPct: null, steps: null, workoutMin: null },
+      ],
+    }),
+    TODAY,
+  );
+  // Only 07-11 and 07-15 fall inside the seven days ending TODAY.
+  check("a sparse logger's 7-day mean sees only 7 days", sparse.trend.at(-1)?.averageKg, 94.5);
+
+  const daily = summarise(
+    competitor({
+      entries: [9, 8, 7, 6, 5, 4].map((ago) => ({
+        performedOn: isoDaysAgo(ago, new Date(`${TODAY}T00:00:00`)),
+        weightKg: 90,
+        bodyFatPct: null,
+        steps: null,
+        workoutMin: null,
+      })),
+    }),
+    TODAY,
+  );
+  // The oldest two readings are 9 and 8 days back, outside the window.
+  check("readings older than the window drop out", daily.trend.at(-1)?.averageKg, 90);
+}
+
+console.log("\n--- momentum is fitted, not read off the endpoints ---");
+{
+  const noisy = competitor({
+    entries: [
+      { performedOn: "2026-07-03", weightKg: 90.0, bodyFatPct: null, steps: null, workoutMin: null },
+      { performedOn: "2026-07-06", weightKg: 89.5, bodyFatPct: null, steps: null, workoutMin: null },
+      { performedOn: "2026-07-09", weightKg: 89.0, bodyFatPct: null, steps: null, workoutMin: null },
+      { performedOn: "2026-07-12", weightKg: 88.5, bodyFatPct: null, steps: null, workoutMin: null },
+      // One heavy morning — water, not fat. Taking the endpoints alone would let
+      // this single reading cancel a fortnight of steady loss.
+      { performedOn: TODAY, weightKg: 90.0, bodyFatPct: null, steps: null, workoutMin: null },
+    ],
+  });
+  check("a blip at the end can't erase the trend", summarise(noisy, TODAY).recentKgPerWeek, 0.23);
+
+  const gaining = summarise(
+    competitor({
+      entries: [
+        { performedOn: "2026-07-05", weightKg: 88, bodyFatPct: null, steps: null, workoutMin: null },
+        { performedOn: TODAY, weightKg: 90, bodyFatPct: null, steps: null, workoutMin: null },
+      ],
+    }),
+    TODAY,
+  );
+  check("gaining reads negative, as kgLost does", gaining.recentKgPerWeek, -1.4);
+
+  // Several readings on one morning describe that morning, not a direction.
+  const oneDay = summarise(
+    competitor({
+      entries: [
+        { performedOn: TODAY, weightKg: 88, bodyFatPct: null, steps: null, workoutMin: null },
+      ],
+    }),
+    TODAY,
+  );
+  check("no span in the window yields no momentum", oneDay.recentKgPerWeek, null);
+
+  const stale = summarise(
+    competitor({
+      entries: [
+        { performedOn: "2026-01-01", weightKg: 95, bodyFatPct: null, steps: null, workoutMin: null },
+        { performedOn: "2026-01-20", weightKg: 90, bodyFatPct: null, steps: null, workoutMin: null },
+      ],
+    }),
+    TODAY,
+  );
+  check("nothing in the fortnight yields no momentum", stale.recentKgPerWeek, null);
+  check("but the all-time rate is still measured", stale.kgPerWeek, 1.84);
+}
+
+console.log("\n--- the weekly step average divides by the calendar ---");
+{
+  const s = summarise(
+    competitor({
+      entries: [
+        // 8 days back: outside the week, and must not leak in.
+        { performedOn: isoDaysAgo(8, new Date(`${TODAY}T00:00:00`)), weightKg: null, bodyFatPct: null, steps: 70_000, workoutMin: null },
+        { performedOn: isoDaysAgo(5, new Date(`${TODAY}T00:00:00`)), weightKg: null, bodyFatPct: null, steps: 12_000, workoutMin: null },
+        { performedOn: isoDaysAgo(3, new Date(`${TODAY}T00:00:00`)), weightKg: null, bodyFatPct: null, steps: 10_000, workoutMin: null },
+        { performedOn: TODAY, weightKg: null, bodyFatPct: null, steps: 8_000, workoutMin: null },
+      ],
+    }),
+    TODAY,
+  );
+  // 30,000 over seven days, the four unlogged ones included: this stat answers
+  // "how far are you walking these days", and a day off is part of that answer.
+  check("the week's steps spread over all seven days", s.avgSteps7d, 4286);
+  // All four logged days including the one outside the week (100,000 / 4): a
+  // different question over a different span, which is why the two are labelled
+  // differently wherever they appear together.
+  check("the all-time average still divides by logged days", s.avgSteps, 25_000);
+}
+
+console.log("\n--- the step heatmap's four weeks ---");
+{
+  const s = summarise(
+    competitor({
+      entries: [
+        { performedOn: isoDaysAgo(1, new Date(`${TODAY}T00:00:00`)), weightKg: null, bodyFatPct: null, steps: 12_000, workoutMin: null },
+        { performedOn: TODAY, weightKg: null, bodyFatPct: null, steps: 0, workoutMin: null },
+      ],
+    }),
+    TODAY,
+  );
+  const trail = s.stepTrail;
+
+  check("four whole weeks of squares", trail.length, 28);
+  // Monday-anchored so every column is one weekday — the only thing that makes
+  // a column mean anything.
+  check("starts on a Monday", new Date(`${trail[0].performedOn}T00:00:00`).getDay(), 1);
+  check("ends on a Sunday", new Date(`${trail[27].performedOn}T00:00:00`).getDay(), 0);
+  check("today has a square", trail.some((d) => d.performedOn === TODAY), true);
+  check(
+    "the squares are contiguous days",
+    trail.every(
+      (d, i) =>
+        i === 0 ||
+        daysBetween(trail[i - 1].performedOn, d.performedOn) === 1,
+    ),
+    true,
+  );
+  // The three distinct states the grid has to tell apart.
+  check("a logged zero is zero, not absent", trail.find((d) => d.performedOn === TODAY)?.steps, 0);
+  // TODAY is a Wednesday, so Thursday to Sunday are still to come.
+  check(
+    "an unlogged day is absent, not zero",
+    trail.find((d) => d.performedOn === isoDaysAgo(3, new Date(`${TODAY}T00:00:00`)))?.steps,
+    null,
+  );
+  check("days after today are pending, not missed", trail.filter((d) => d.pending).length, 4);
+  check("nothing before today is pending", trail.every((d) => !d.pending || d.performedOn > TODAY), true);
+}
+
 console.log("\n--- steps to distance ---");
 check("10,000 steps is 7.62km", Number(stepsToKm(10_000).toFixed(2)), 7.62);
+check("the heatmap's threshold is the number everyone walks against", GOAL_STEPS, 10_000);
 
 console.log("\n--- body fat rides along without touching the score ---");
 {

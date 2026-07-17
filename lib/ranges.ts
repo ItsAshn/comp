@@ -64,3 +64,26 @@ export function isoDaysAgo(days: number, from = new Date()): string {
   date.setDate(date.getDate() - days);
   return toISODate(date);
 }
+
+/**
+ * The Monday that opens a grid of `weeks` whole weeks ending with the week
+ * `today` falls in.
+ *
+ * The one place in the app that doesn't use a rolling window, and deliberately:
+ * a rolling 28 days starts on whatever weekday you happen to open it, so its
+ * columns can't mean anything. The step heatmap exists to show *weekday* habit —
+ * the Sunday you never walk, the Monday you always do — and that pattern only
+ * surfaces if every column is one weekday.
+ *
+ * Weeks start Monday as a fixed rule rather than a locale lookup, because the
+ * two competitors' grids sit side by side and have to be read against each
+ * other. A grid that started on Sunday for one of them and Monday for the other
+ * would put different days in the same column.
+ */
+export function weekGridStart(today: string, weeks: number): string {
+  const date = new Date(`${today}T00:00:00`);
+  // getDay() is Sunday-based (0=Sun); shift it so Monday is 0.
+  const sinceMonday = (date.getDay() + 6) % 7;
+  date.setDate(date.getDate() - sinceMonday - (weeks - 1) * 7);
+  return toISODate(date);
+}

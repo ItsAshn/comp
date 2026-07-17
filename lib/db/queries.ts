@@ -102,7 +102,10 @@ export function listAccounts() {
       paletteSlot: users.paletteSlot,
       isAdmin: users.isAdmin,
       createdAt: users.createdAt,
-      entryCount: sql<number>`(select count(*) from ${entries} where ${entries.userId} = ${users.id})`,
+      // Built via $count rather than a raw sql`` fragment: columns embedded in
+      // a raw selected field render unqualified, and inside the subquery the
+      // bare "id" resolves to entries.id — silently breaking the correlation.
+      entryCount: db.$count(entries, eq(entries.userId, users.id)),
     })
     .from(users)
     .orderBy(users.id)

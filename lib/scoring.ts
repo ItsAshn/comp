@@ -8,7 +8,7 @@
  * are asked for the same proportional effort.
  */
 
-import { daysBetween, isoDaysAgo, toISODate } from "./ranges";
+import { daysBetween, isoDaysAgo, toISODate, weekGridStart } from "./ranges";
 
 export interface DayEntry {
   performedOn: string;
@@ -36,6 +36,19 @@ export interface TrendPoint {
   averageKg: number;
 }
 
+/** One cell of the step heatmap. */
+export interface StepDay {
+  performedOn: string;
+  /** Null means no steps were logged that day — which the grid draws differently
+   *  from a logged zero, for the same reason the schema won't fold one into the
+   *  other. */
+  steps: number | null;
+  /** A slot in the current week that hasn't arrived yet. The grid keeps it so
+   *  the weekday columns stay aligned but draws nothing in it: a day you haven't
+   *  lived and a day you didn't walk are not the same absence. */
+  pending: boolean;
+}
+
 export interface Standing {
   userId: number;
   name: string;
@@ -52,11 +65,14 @@ export interface Standing {
   goalWeightKg: number | null;
   /** Percent of the start→goal distance covered, null when no goal is set. */
   goalProgressPct: number | null;
-  /** Average kilograms per week between first and last weigh-in. */
-  kgPerWeek: number;
+  /** Average kilograms per week between first and last weigh-in. Null until two
+   *  weigh-ins on two different days give it a span to average over — one
+   *  reading is not a flat week, and a 0 here would claim it was. */
+  kgPerWeek: number | null;
   /** Kilograms per week over the last fortnight only — who is moving fastest
-   *  now, as opposed to who has moved furthest overall. */
-  recentKgPerWeek: number;
+   *  now, as opposed to who has moved furthest overall. Null on the same terms
+   *  as `kgPerWeek`. */
+  recentKgPerWeek: number | null;
   /** Days from now to the goal at the current rate; null if no goal, or if the
    *  rate is flat or moving the wrong way. */
   daysToGoal: number | null;
@@ -65,7 +81,17 @@ export interface Standing {
   /** Consecutive days with an entry, counting back from today. */
   streak: number;
   totalSteps: number;
+  /** Steps per day across the days steps were actually logged, all time. */
   avgSteps: number;
+  /** Steps per day over the trailing week, divided by seven whether or not a day
+   *  was logged. Deliberately a different denominator from `avgSteps`: that one
+   *  answers "how far do you walk when you walk", this one answers "how far are
+   *  you walking these days", and a week off is part of that answer. The two are
+   *  labelled differently wherever they're shown together. */
+  avgSteps7d: number;
+  /** The last four whole weeks of daily steps, Monday-first and oldest-first —
+   *  exactly the cells of the heatmap, in reading order. */
+  stepTrail: StepDay[];
   totalWorkoutMin: number;
   avgWorkoutMin: number;
   /** Straight-line distance implied by the step count. */
@@ -76,11 +102,29 @@ export interface Standing {
 /** Mean stride length in metres, the usual figure for an adult walking. */
 const STRIDE_M = 0.762;
 
+/**
+ * The step count that makes a day count. Ten thousand has no clinical basis —
+ * it began as a 1960s pedometer's brand name — but it's the number everyone
+ * already walks against, and a target you recognise beats a defensible one you'd
+ * have to explain. Nothing in the competition is scored on it: it only decides
+ * whether the heatmap fills a square in.
+ */
+export const GOAL_STEPS = 10_000;
+
 const WINDOW_DAYS = 7;
 
 /** Momentum needs enough readings to survive scale noise but must still react
  *  to a change of pace; a fortnight is the usual compromise. */
 const MOMENTUM_DAYS = 14;
+
+/** The trailing week the step average covers. Its own constant rather than a
+ *  borrowed WINDOW_DAYS: the two happen to both be seven days, but retuning the
+ *  weight trend has no business moving the step stat. */
+const STEP_WEEK_DAYS = 7;
+
+/** Weeks in the step heatmap. Four reads as "this month" without the grid
+ *  growing forever as the competition runs long. */
+const HEATMAP_WEEKS = 4;
 
 export function stepsToKm(steps: number): number {
   return (steps * STRIDE_M) / 1000;
@@ -99,8 +143,16 @@ function byDate(entries: DayEntry[]): DayEntry[] {
 function buildTrend(sorted: DayEntry[]): TrendPoint[] {
   const weighIns = sorted.filter((e) => e.weightKg != null);
 
-  return weighIns.map((entry, i) => {
-    const window = weighIns.slice(Math.max(0, i - WINDOW_DAYS + 1), i + 1);
+  return weighIns.map((entry) => {
+    // A window of DAYS, not of readings. Slicing a fixed number of weigh-ins
+    // only answers "the last 7 days" for someone who weighs in daily: weigh in
+    // every fifth day and the same slice quietly averages a month into a line
+    // labelled "7-day avg". The window is defined by the calendar, so it means
+    // the same thing at every logging cadence.
+    const from = isoDaysAgo(WINDOW_DAYS - 1, new Date(`${entry.performedOn}T00:00:00`));
+    const window = weighIns.filter(
+      (w) => w.performedOn >= from && w.performedOn <= entry.performedOn,
+    );
     const mean = window.reduce((sum, w) => sum + w.weightKg!, 0) / window.length;
 
     return {
@@ -111,19 +163,70 @@ function buildTrend(sorted: DayEntry[]): TrendPoint[] {
   });
 }
 
-/** Kilograms per week across the weigh-ins inside the trailing window. Returns
- *  0 until there are two readings to draw a line between. */
-function momentum(weighIns: DayEntry[], today: string): number {
+/**
+ * Kilograms per week, as the least-squares slope through every weigh-in in the
+ * trailing window. Null until two readings on two different days give it a line
+ * to fit.
+ *
+ * Taking the window's endpoints was the obvious implementation and the wrong
+ * one: it makes a fortnight's verdict hostage to exactly two readings, and daily
+ * scale noise (water, food, time of day) is larger than the real weekly change.
+ * One heavy Monday morning at either end could report a steady loss as flat. A
+ * fit spends every reading in the window, so a single bad day tugs the line
+ * instead of defining it.
+ */
+function momentum(weighIns: DayEntry[], today: string): number | null {
   const since = isoDaysAgo(MOMENTUM_DAYS, new Date(`${today}T00:00:00`));
   const recent = weighIns.filter((e) => e.performedOn >= since);
-  if (recent.length < 2) return 0;
+  if (recent.length < 2) return null;
 
-  const first = recent.at(0)!;
-  const last = recent.at(-1)!;
-  const days = daysBetween(first.performedOn, last.performedOn);
-  if (days <= 0) return 0;
+  const base = recent[0].performedOn;
+  const points = recent.map((e) => ({
+    day: daysBetween(base, e.performedOn),
+    kg: e.weightKg!,
+  }));
 
-  return ((first.weightKg! - last.weightKg!) / days) * 7;
+  const meanDay = points.reduce((sum, p) => sum + p.day, 0) / points.length;
+  const meanKg = points.reduce((sum, p) => sum + p.kg, 0) / points.length;
+
+  let covariance = 0;
+  let variance = 0;
+  for (const p of points) {
+    covariance += (p.day - meanDay) * (p.kg - meanKg);
+    variance += (p.day - meanDay) ** 2;
+  }
+  // Every reading landed on the same day, so there's no slope to speak of —
+  // several weigh-ins on one morning describe that morning, not a trend.
+  if (variance === 0) return null;
+
+  // The slope is kilograms of change per day, negative when weight is falling.
+  // Negated so that losing reads positive, matching kgLost and kgPerWeek.
+  return (-covariance / variance) * 7;
+}
+
+/**
+ * Every day of the heatmap's four weeks, in reading order, whether or not it was
+ * logged. The grid is a calendar: it has to carry the empty days too, or it
+ * would show four weeks of walking with the rest days quietly removed.
+ */
+function buildStepTrail(sorted: DayEntry[], today: string): StepDay[] {
+  const byDay = new Map(
+    sorted.filter((e) => e.steps != null).map((e) => [e.performedOn, e.steps!]),
+  );
+
+  const start = new Date(`${weekGridStart(today, HEATMAP_WEEKS)}T00:00:00`);
+
+  return Array.from({ length: HEATMAP_WEEKS * 7 }, (_, i) => {
+    const day = new Date(start);
+    day.setDate(day.getDate() + i);
+    const iso = toISODate(day);
+
+    return {
+      performedOn: iso,
+      steps: byDay.get(iso) ?? null,
+      pending: iso > today,
+    };
+  });
 }
 
 /** Counts back from today. A day logged yesterday but not today still keeps the
@@ -171,7 +274,11 @@ export function summarise(competitor: Competitor, today = toISODate()): Standing
     weighIns.length > 1
       ? daysBetween(weighIns.at(0)!.performedOn, weighIns.at(-1)!.performedOn)
       : 0;
-  const kgPerWeek = spanDays > 0 ? (kgLost / spanDays) * 7 : 0;
+  // Null, not 0, when there's no span to average over: a competitor with one
+  // weigh-in hasn't held steady, they simply haven't been measured twice, and
+  // "0 kg/wk" would report the second as though it were the first.
+  const kgPerWeek = spanDays > 0 ? (kgLost / spanDays) * 7 : null;
+  const recentKgPerWeek = momentum(weighIns, today);
 
   const goalWeightKg = competitor.goalWeightKg;
   let goalProgressPct: number | null = null;
@@ -193,6 +300,13 @@ export function summarise(competitor: Competitor, today = toISODate()): Standing
   const totalWorkoutMin = sorted.reduce((sum, e) => sum + (e.workoutMin ?? 0), 0);
   const workoutDays = sorted.filter((e) => e.workoutMin != null).length;
 
+  // Bounded at both ends: `>= weekStart` is the week, and `<= today` keeps a
+  // day logged ahead of time out of an average that claims to be the last seven.
+  const weekStart = isoDaysAgo(STEP_WEEK_DAYS - 1, new Date(`${today}T00:00:00`));
+  const weekSteps = sorted
+    .filter((e) => e.performedOn >= weekStart && e.performedOn <= today)
+    .reduce((sum, e) => sum + (e.steps ?? 0), 0);
+
   return {
     userId: competitor.userId,
     name: competitor.name,
@@ -205,14 +319,16 @@ export function summarise(competitor: Competitor, today = toISODate()): Standing
     bodyFatDeltaPct,
     goalWeightKg,
     goalProgressPct: goalProgressPct == null ? null : round(goalProgressPct),
-    kgPerWeek: round(kgPerWeek, 2),
-    recentKgPerWeek: round(momentum(weighIns, today), 2),
+    kgPerWeek: kgPerWeek == null ? null : round(kgPerWeek, 2),
+    recentKgPerWeek: recentKgPerWeek == null ? null : round(recentKgPerWeek, 2),
     daysToGoal,
     weighIns: weighIns.length,
     daysLogged: sorted.length,
     streak: currentStreak(sorted, today),
     totalSteps,
     avgSteps: stepDays > 0 ? Math.round(totalSteps / stepDays) : 0,
+    avgSteps7d: Math.round(weekSteps / STEP_WEEK_DAYS),
+    stepTrail: buildStepTrail(sorted, today),
     totalWorkoutMin,
     avgWorkoutMin: workoutDays > 0 ? Math.round(totalWorkoutMin / workoutDays) : 0,
     stepsKm: round(stepsToKm(totalSteps)),
